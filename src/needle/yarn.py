@@ -197,8 +197,15 @@ class Yarn:
         """Universal cross-process event and sensory bus."""
         if hasattr(self, "_elastic") and self._elastic is not None:
             return self._elastic
+        if "textile.core.telemetry.elastic" in sys.modules:
+            mod = sys.modules["textile.core.telemetry.elastic"]
+            inst = getattr(mod, "elastic", None)
+            if inst is not None and not inspect.ismodule(inst):
+                return inst
         if "textile.core.telemetry" in sys.modules:
-            return getattr(sys.modules["textile.core.telemetry"], "elastic", None)
+            inst = getattr(sys.modules["textile.core.telemetry"], "elastic", None)
+            if inst is not None and not inspect.ismodule(inst):
+                return inst
         return None
 
     @property
@@ -206,8 +213,15 @@ class Yarn:
         """Universal live state & sensory blackboard."""
         if hasattr(self, "_tapestry") and self._tapestry is not None:
             return self._tapestry
+        if "textile.core.telemetry.blackboard" in sys.modules:
+            mod = sys.modules["textile.core.telemetry.blackboard"]
+            inst = getattr(mod, "sensory_tapestry", None)
+            if inst is not None and not inspect.ismodule(inst):
+                return inst
         if "textile.core.telemetry" in sys.modules:
-            return getattr(sys.modules["textile.core.telemetry"], "sensory_tapestry", None)
+            inst = getattr(sys.modules["textile.core.telemetry"], "sensory_tapestry", None)
+            if inst is not None and not inspect.ismodule(inst):
+                return inst
         return None
 
     def publish_event(
@@ -282,7 +296,7 @@ class Yarn:
         description: str,
         handler: Callable[..., Any],
         *,
-        tier: CapabilityTier = CapabilityTier.INTERACT,
+        tier: CapabilityTier | str = CapabilityTier.INTERACT,
         parameters: dict[str, Any] | None = None,
         required: list[str] | None = None,
         capability: str | None = None,
@@ -292,12 +306,37 @@ class Yarn:
         **kwargs: Any,
     ) -> Strand:
         """Helper to construct and return a Strand object explicitly."""
+        if "textile.core.execution.reflector" in sys.modules:
+            reflector = sys.modules["textile.core.execution.reflector"]
+            build_fn = getattr(reflector, "build_dynamic_strand", None)
+            if callable(build_fn):
+                return cast(
+                    Strand,
+                    build_fn(
+                        self,
+                        name,
+                        description,
+                        handler,
+                        tier=tier,
+                        parameters=parameters,
+                        required=required,
+                        capability=capability,
+                        resources=resources,
+                        timeout=timeout,
+                        no_timeout=no_timeout,
+                        **kwargs,
+                    ),
+                )
+
+        from needle.tiers import parse_capability_tier
+
+        validated_tier = parse_capability_tier(tier, strand_name=name)
         return Strand(
             name=name,
             description=description,
             handler=handler,
             raw_handler=handler,
-            tier=tier,
+            tier=validated_tier,
             parameters=parameters or {},
             required=required or [],
             capability=capability,
@@ -308,6 +347,12 @@ class Yarn:
 
     def get_strands(self) -> list[Strand]:
         """Discover all strands exposed by this Yarn (from decorators or explicit declarations)."""
+        if "textile.core.execution.reflector" in sys.modules:
+            reflector = sys.modules["textile.core.execution.reflector"]
+            reflect_fn = getattr(reflector, "reflect_strands", None)
+            if callable(reflect_fn):
+                return cast(list[Strand], reflect_fn(self))
+
         discovered: list[Strand] = []
         for m_name in dir(self.__class__):
             if m_name.startswith("__"):
@@ -371,6 +416,12 @@ class Yarn:
 
     def get_wefts(self) -> list[Weft]:
         """Discover all real-time token streaming wefts defined on this Yarn."""
+        if "textile.core.execution.reflector" in sys.modules:
+            reflector = sys.modules["textile.core.execution.reflector"]
+            reflect_fn = getattr(reflector, "reflect_wefts", None)
+            if callable(reflect_fn):
+                return cast(list[Weft], reflect_fn(self))
+
         discovered: list[Weft] = []
         for m_name in dir(self.__class__):
             if m_name.startswith("__"):
