@@ -19,7 +19,11 @@ class TwillClient:
 
         Includes full desktop session environment by default (preserving Wayland, Hyprland, D-Bus).
         """
-        target_dir = Path(textile_dir).resolve() if textile_dir else Path.home() / "Projects" / "textile"
+        if textile_dir:
+            target_dir = Path(textile_dir).resolve()
+        else:
+            core_dir = Path.home() / "Projects" / "textile-core"
+            target_dir = core_dir if core_dir.is_dir() else Path.home() / "Projects" / "textile"
         cmd_args = ["run"]
         if target_dir.is_dir():
             cmd_args.extend(["--directory", str(target_dir)])
