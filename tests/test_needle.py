@@ -2,7 +2,7 @@
 Tests for needle SDK - verifies Yarn base class, decorators, schema generation, and MCP serialization.
 """
 
-from needle import CapabilityTier, TwillClient, Yarn, parse_capability_tier, strand, weft
+from needle import CapabilityTier, Yarn, parse_capability_tier, strand
 
 
 class SampleYarn(Yarn):
@@ -19,10 +19,6 @@ class SampleYarn(Yarn):
     @strand(tier=CapabilityTier.PRIVILEGED, no_timeout=True)
     def sys_task(self) -> str:
         return "priv_done"
-
-    @weft(pattern=r"<mood:(\w+)>")
-    def on_mood(self, text: str, match: object) -> str:
-        return text
 
 
 def test_capability_tier_parsing() -> None:
@@ -65,18 +61,24 @@ def test_yarn_reflection_and_strands() -> None:
     assert sys_strand.timeout is None
 
 
-def test_yarn_wefts() -> None:
+def test_yarn_manifest() -> None:
     yarn = SampleYarn()
-    wefts = yarn.get_wefts()
-    assert len(wefts) == 1
-    assert wefts[0].name == "on_mood"
-    assert wefts[0].pattern.pattern == r"<mood:(\w+)>"
+    manifest = yarn.export_manifest()
+    assert manifest["name"] == "sample"
+    assert manifest["class_name"] == "SampleYarn"
+    assert manifest["layer"] == 42
+    assert len(manifest["strands"]) == 2
+    launch_data = next(s for s in manifest["strands"] if s["name"] == "launch")
+    assert launch_data["tier"] == "interact"
+    assert "app_name" in launch_data["parameters"]
+    assert "wait" in launch_data["parameters"]
 
 
-def test_twill_client_parameters() -> None:
-    params = TwillClient.get_server_parameters(env={"TEST_VAR": "123"})
-    assert params["command"] == "uv"
-    assert "textile" in params["args"]
-    assert "twill" in params["args"]
-    assert params["env"]["TEST_VAR"] == "123"
+def test_yarn_settings_and_execution() -> None:
+    yarn = SampleYarn()
+    yarn.set_user_settings({"custom_key": "custom_val"})
+    assert yarn.settings["custom_key"] == "custom_val"
+    assert yarn.settings.custom_key == "custom_val"
 
+    exec_res = yarn.execute_sync("launch", {"app_name": "term", "wait": True})
+    assert exec_res == "launched term (wait=True)"

@@ -7,8 +7,9 @@ license = { text = "Apache-2.0" }
 authors = [
     { name = "themazyworlds", email = "meerahemant9086@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = [
+    "orjson>=3.10.0",
     "pydantic>=2.0.0",
 ]
 
@@ -30,9 +31,9 @@ venv = ".venv"
 typeCheckingMode = "standard"
 include = ["src", "tests"]
 extraPaths = ["src"]
-pythonVersion = "3.14"
+pythonVersion = "3.15"
 pythonPlatform = "Linux"
 
 [tool.ruff]
 line-length = 120
-target-version = "py314"
+target-version = "py315"

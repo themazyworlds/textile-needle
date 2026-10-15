@@ -2,40 +2,26 @@
 needle.yarn - Base class and lifecycle contract for Textile Yarns.
 """
 
+from __future__ import annotations
+
 import asyncio
 import concurrent.futures
 import contextlib
 import inspect
+import json
 import sys
 import tomllib
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from pathlib import Path
-from typing import Any, cast
+from importlib import resources
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ValidationError
+from needle.models import Strand
+from needle.settings import SettingsObject, resolve_yarn_settings
+from needle.tiers import CapabilityTier, parse_capability_tier
 
-from needle.models import Strand, Weft
-from needle.tiers import CapabilityTier
-
-
-class SettingsObject(dict[str, Any]):
-    """Dynamic settings object supporting dot-attribute access and dict indexing."""
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(f"Settings has no attribute {name!r}") from None
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        self[name] = value
-
-    def __delattr__(self, name: str) -> None:
-        try:
-            del self[name]
-        except KeyError:
-            raise AttributeError(f"Settings has no attribute {name!r}") from None
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 
 class Yarn:
@@ -61,100 +47,59 @@ class Yarn:
         version: str | None = None,
         resources: Sequence[str] | None = None,
         dependencies: Sequence[str] | None = None,
-        **kwargs: Any,
     ) -> None:
-        if name:
-            self.name = name
-        elif not self.name:
-            self.name = self.__class__.__name__.lower().removesuffix("yarn")
+        cfg = self._read_pyproject()
+        proj = cfg.get("project", {})
+        tool = cfg.get("tool", {}).get("textile", {})
 
-        if description:
-            self.description = description.splitlines()[0].strip()
-        elif not self.description:
-            doc = inspect.getdoc(self.__class__)
-            self.description = doc.splitlines()[0].strip() if doc else self.name
+        # Declarative attribute resolution: Constructor Arg -> pyproject.toml -> Class Default
+        proj_name = str(proj["name"]).removeprefix("textile-yarn-").removeprefix("yarn-") if "name" in proj else ""
+        self.name = name or self.name or proj_name or self.__class__.__name__.lower().removesuffix("yarn")
 
-        if layer is not None:
-            self.layer = layer
-        if tailor is not None:
-            self.tailor = tailor
-        elif "tailor" in kwargs and kwargs["tailor"] is not None:
-            self.tailor = str(kwargs["tailor"])
-        if version is not None:
-            self.version = version
-        elif "version" in kwargs and kwargs["version"] is not None:
-            self.version = str(kwargs["version"])
-        if resources is not None:
-            self.resources = list(resources)
-        elif "resources" in kwargs and kwargs["resources"] is not None:
-            self.resources = list(kwargs["resources"])
-        if dependencies is not None:
-            self.dependencies = list(dependencies)
-        elif "dependencies" in kwargs and kwargs["dependencies"] is not None:
-            self.dependencies = list(kwargs["dependencies"])
+        doc = inspect.getdoc(self.__class__)
+        class_desc = doc.splitlines()[0].strip() if doc else self.name
+        proj_desc = str(proj["description"]).splitlines()[0].strip() if "description" in proj else ""
+        self.description = description or self.description or proj_desc or class_desc
 
-        self._default_settings: dict[str, Any] = {}
-        self._settings_info: dict[str, Any] = {}
+        self.version = version or str(proj.get("version", self.version))
+        self.layer = layer if layer is not None else int(tool.get("layer", self.layer))
+
+        first_author = proj.get("authors", [{}])[0] if proj.get("authors") else {}
+        author_name = first_author.get("name", "textile") if isinstance(first_author, dict) else str(first_author)
+        self.tailor = tailor or str(tool.get("tailor", author_name if author_name else self.tailor))
+
+        self.resources = list(resources if resources is not None else tool.get("resources", self.resources))
+        self.dependencies = list(
+            dependencies if dependencies is not None else proj.get("dependencies", self.dependencies)
+        )
+
+        settings_table = tool.get("settings", {}) if isinstance(tool.get("settings"), dict) else {}
+        self._settings_info = dict(settings_table)
+        self._default_settings = {
+            k: v.get("default", v) if isinstance(v, dict) else v for k, v in settings_table.items()
+        }
+        self._user_settings: dict[str, Any] = {}
         self._settings: Any = None
         self._slots: dict[str, Any] = {}
 
-        self._populate_pyproject_metadata(name=name, description=description, layer=layer, kwargs=kwargs)
-
-    def _populate_pyproject_metadata(
-        self,
-        name: str | None,
-        description: str | None,
-        layer: int | None,
-        kwargs: dict[str, Any],
-    ) -> None:
-        with contextlib.suppress(Exception):
-            mod = sys.modules.get(self.__class__.__module__)
-            mod_file = getattr(mod, "__file__", None)
-            if not mod_file:
-                try:
-                    mod_file = inspect.getfile(self.__class__)
-                except (TypeError, OSError):
-                    mod_file = None
-            if not mod_file:
-                return
-            pyproj = Path(mod_file).parent / "pyproject.toml"
-            if not pyproj.exists():
-                return
-            with pyproj.open("rb") as f:
-                data = tomllib.load(f)
-
-            project = data.get("project", {})
-            if not name and "name" in project and (not self.name or self.name == self.__class__.__name__.lower()):
-                raw_name = str(project["name"])
-                self.name = raw_name.removeprefix("textile-yarn-").removeprefix("yarn-")
-            if not description and "description" in project:
-                self.description = str(project["description"]).splitlines()[0].strip()
-            if "version" not in kwargs and "version" in project:
-                self.version = str(project["version"])
-            if "authors" in project and project["authors"] and "tailor" not in kwargs:
-                first_author = project["authors"][0]
-                self.tailor = str(first_author.get("name", "textile") if isinstance(first_author, dict) else first_author)
-            if "dependencies" not in kwargs and not self.dependencies and "dependencies" in project:
-                self.dependencies = list(project["dependencies"])
-
-            tool_textile = data.get("tool", {}).get("textile", {})
-            if layer is None and "layer" in tool_textile:
-                self.layer = int(tool_textile["layer"])
-            if "tailor" in tool_textile and "tailor" not in kwargs:
-                self.tailor = str(tool_textile["tailor"])
-            if "resources" not in kwargs and not self.resources and "resources" in tool_textile:
-                self.resources = list(tool_textile["resources"])
-            if "settings" in tool_textile and isinstance(tool_textile["settings"], dict):
-                self._settings_info = dict(tool_textile["settings"])
-                for key, val in tool_textile["settings"].items():
-                    if isinstance(val, dict) and "default" in val:
-                        self._default_settings[key] = val["default"]
-                    else:
-                        self._default_settings[key] = val
+    @classmethod
+    def _read_pyproject(cls) -> dict[str, Any]:
+        """Official PyPA resource loading via importlib.resources."""
+        with contextlib.suppress(TypeError, ValueError, AttributeError, ModuleNotFoundError, OSError):
+            target = resources.files(cls.__module__).joinpath("pyproject.toml")
+            if target.is_file():
+                with target.open("rb") as f:
+                    return tomllib.load(f)
+        return {}
 
     def get_settings_schema(self) -> type[BaseModel] | None:
         """Return explicit Pydantic settings schema for this yarn."""
         return self.settings_schema
+
+    def set_user_settings(self, settings: dict[str, Any]) -> None:
+        """Inject user configuration overrides for this yarn."""
+        self._user_settings = dict(settings)
+        self._settings = None
 
     @property
     def settings(self) -> Any:
@@ -162,29 +107,12 @@ class Yarn:
         if self._settings is not None:
             return self._settings
 
-        user_config: dict[str, Any] = {}
-        if "textile.core.definitions.settings" in sys.modules:
-            getter = getattr(sys.modules["textile.core.definitions.settings"], "get_user_yarn_settings", None)
-            if callable(getter):
-                res = getter(self.name)
-                if isinstance(res, dict):
-                    user_config = res
-
-        merged_config = dict(self._default_settings)
-        merged_config.update(user_config)
-
-        schema = self.get_settings_schema()
-        if schema is not None and isinstance(schema, type) and issubclass(schema, BaseModel):
-            try:
-                self._settings = schema.model_validate(merged_config)
-            except ValidationError:
-                try:
-                    self._settings = schema()
-                except (ValidationError, TypeError, ValueError):
-                    self._settings = SettingsObject(merged_config)
-        else:
-            self._settings = SettingsObject(merged_config)
-
+        self._settings = resolve_yarn_settings(
+            user_config=getattr(self, "_user_settings", {}),
+            default_config=self._default_settings,
+            schema=self.get_settings_schema(),
+            package_anchor=self.__class__.__module__,
+        )
         return self._settings
 
     def reload_settings(self) -> Any:
@@ -195,33 +123,21 @@ class Yarn:
     @property
     def elastic(self) -> Any:
         """Universal cross-process event and sensory bus."""
-        if hasattr(self, "_elastic") and self._elastic is not None:
-            return self._elastic
+        inst = getattr(self, "_elastic", None)
+        if inst is not None:
+            return inst
         if "textile.core.telemetry.elastic" in sys.modules:
-            mod = sys.modules["textile.core.telemetry.elastic"]
-            inst = getattr(mod, "elastic", None)
-            if inst is not None and not inspect.ismodule(inst):
-                return inst
-        if "textile.core.telemetry" in sys.modules:
-            inst = getattr(sys.modules["textile.core.telemetry"], "elastic", None)
-            if inst is not None and not inspect.ismodule(inst):
-                return inst
+            return getattr(sys.modules["textile.core.telemetry.elastic"], "elastic", None)
         return None
 
     @property
     def tapestry(self) -> Any:
         """Universal live state & sensory blackboard."""
-        if hasattr(self, "_tapestry") and self._tapestry is not None:
-            return self._tapestry
+        inst = getattr(self, "_tapestry", None)
+        if inst is not None:
+            return inst
         if "textile.core.telemetry.blackboard" in sys.modules:
-            mod = sys.modules["textile.core.telemetry.blackboard"]
-            inst = getattr(mod, "sensory_tapestry", None)
-            if inst is not None and not inspect.ismodule(inst):
-                return inst
-        if "textile.core.telemetry" in sys.modules:
-            inst = getattr(sys.modules["textile.core.telemetry"], "sensory_tapestry", None)
-            if inst is not None and not inspect.ismodule(inst):
-                return inst
+            return getattr(sys.modules["textile.core.telemetry.blackboard"], "sensory_tapestry", None)
         return None
 
     def publish_event(
@@ -232,7 +148,9 @@ class Yarn:
     ) -> None:
         """Publish a real-time event to Elastic."""
         if self.elastic is not None:
-            summary = getattr(options, "summary", "") or kwargs.get("summary") or f"Event '{topic}' from yarn '{self.name}'"
+            summary = (
+                getattr(options, "summary", "") or kwargs.get("summary") or f"Event '{topic}' from yarn '{self.name}'"
+            )
             urgency = getattr(options, "urgency", None) or kwargs.get("urgency", "notice")
             data = getattr(options, "data", None) if options is not None else kwargs.get("data")
             payload = data if isinstance(data, dict) else (kwargs if kwargs else {"payload": data})
@@ -285,11 +203,6 @@ class Yarn:
         """Automatically discovers all @strand decorated methods on the class once."""
         return self.get_strands()
 
-    @cached_property
-    def wefts(self) -> list[Weft]:
-        """Automatically discovers all @weft decorated methods on the class once."""
-        return self.get_wefts()
-
     def build_strand(
         self,
         name: str,
@@ -303,43 +216,27 @@ class Yarn:
         resources: list[str] | None = None,
         timeout: float | None = 30.0,
         no_timeout: bool = False,
-        **kwargs: Any,
+        args_schema: type[BaseModel] | None = None,
     ) -> Strand:
         """Helper to construct and return a Strand object explicitly."""
-        if "textile.core.execution.reflector" in sys.modules:
-            reflector = sys.modules["textile.core.execution.reflector"]
-            build_fn = getattr(reflector, "build_dynamic_strand", None)
-            if callable(build_fn):
-                return cast(
-                    Strand,
-                    build_fn(
-                        self,
-                        name,
-                        description,
-                        handler,
-                        tier=tier,
-                        parameters=parameters,
-                        required=required,
-                        capability=capability,
-                        resources=resources,
-                        timeout=timeout,
-                        no_timeout=no_timeout,
-                        **kwargs,
-                    ),
-                )
-
-        from needle.tiers import parse_capability_tier
-
         validated_tier = parse_capability_tier(tier, strand_name=name)
+        params = dict(parameters) if parameters else {}
+        req = list(required) if required else []
+        if args_schema is not None and not params:
+            json_schema = args_schema.model_json_schema()
+            params = dict(json_schema.get("properties", {}))
+            req = list(json_schema.get("required", []))
+
         return Strand(
             name=name,
             description=description,
             handler=handler,
             raw_handler=handler,
             tier=validated_tier,
-            parameters=parameters or {},
-            required=required or [],
+            parameters=params,
+            required=req,
             capability=capability,
+            args_schema=args_schema,
             resources=resources or list(self.resources),
             timeout=None if no_timeout else timeout,
             no_timeout=no_timeout,
@@ -347,12 +244,6 @@ class Yarn:
 
     def get_strands(self) -> list[Strand]:
         """Discover all strands exposed by this Yarn (from decorators or explicit declarations)."""
-        if "textile.core.execution.reflector" in sys.modules:
-            reflector = sys.modules["textile.core.execution.reflector"]
-            reflect_fn = getattr(reflector, "reflect_strands", None)
-            if callable(reflect_fn):
-                return cast(list[Strand], reflect_fn(self))
-
         discovered: list[Strand] = []
         for m_name in dir(self.__class__):
             if m_name.startswith("__"):
@@ -385,7 +276,7 @@ class Yarn:
             }
 
             for p_name, p in sig.parameters.items():
-                if p_name in ("self", "cls"):
+                if p_name in {"self", "cls"}:
                     continue
                 p_type = "string"
                 if p.annotation is not inspect.Parameter.empty:
@@ -414,49 +305,29 @@ class Yarn:
             )
         return discovered
 
-    def get_wefts(self) -> list[Weft]:
-        """Discover all real-time token streaming wefts defined on this Yarn."""
-        if "textile.core.execution.reflector" in sys.modules:
-            reflector = sys.modules["textile.core.execution.reflector"]
-            reflect_fn = getattr(reflector, "reflect_wefts", None)
-            if callable(reflect_fn):
-                return cast(list[Weft], reflect_fn(self))
-
-        discovered: list[Weft] = []
-        for m_name in dir(self.__class__):
-            if m_name.startswith("__"):
-                continue
-            class_attr = getattr(self.__class__, m_name, None)
-            if isinstance(class_attr, (property, cached_property)):
-                continue
-            method = getattr(self, m_name, None)
-            if not callable(method) or not getattr(method, "_is_weft", False):
-                continue
-            w_name = getattr(method, "_weft_name", method.__name__)
-            w_pattern = cast(Any, method)._weft_pattern
-            w_desc = getattr(method, "_weft_description", "")
-            w_strip = getattr(method, "_weft_strip", True)
-            w_priority = getattr(method, "_weft_priority", 100)
-
-            discovered.append(
-                Weft(
-                    name=w_name,
-                    pattern=w_pattern,
-                    handler=method,
-                    description=w_desc,
-                    strip=w_strip,
-                    priority=w_priority,
-                )
-            )
-        return discovered
-
     def execute_sync(self, strand_name: str, args: dict[str, Any]) -> str:
         """Execute strand synchronously by matching name in discovered strands."""
         strand = next((s for s in self.get_strands() if s.name == strand_name and s.handler is not None), None)
         if not strand or not strand.handler:
             return f"Error: Strand '{strand_name}' not implemented in yarn '{self.name}'."
 
-        res = strand.handler(args)
+        sig = inspect.signature(strand.handler)
+        params = list(sig.parameters.values())
+        if (
+            len(params) == 1
+            and params[0].annotation is not inspect.Parameter.empty
+            and not inspect.isclass(params[0].annotation)
+            and "dict" in str(params[0].annotation)
+        ):
+            res = strand.handler(args)
+        else:
+            try:
+                bound = sig.bind_partial(**args)
+                bound.apply_defaults()
+                res = strand.handler(*bound.args, **bound.kwargs)
+            except TypeError:
+                res = strand.handler(args)
+
         if inspect.isawaitable(res):
             try:
                 loop = asyncio.get_running_loop()
@@ -465,6 +336,21 @@ class Yarn:
 
             if loop and loop.is_running():
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    return str(pool.submit(asyncio.run, res).result())
-            return str(asyncio.run(res))
+                    res = pool.submit(asyncio.run, res).result()
+            else:
+                res = asyncio.run(res)
+
+        if isinstance(res, str):
+            return res
+        if isinstance(res, (dict, list)):
+            return json.dumps(res)
         return str(res)
+
+    def export_manifest(self) -> dict[str, Any]:
+        """Export standardized yarn schema manifest and its capability strands."""
+        from needle.manifest import export_yarn_manifest
+
+        return export_yarn_manifest(self)
+
+
+__all__ = ["SettingsObject", "Yarn"]

@@ -1,8 +1,7 @@
 """
-needle.decorators - Declarative @strand and @weft decorators for Yarns.
+needle.decorators - Declarative @strand decorator for Yarns.
 """
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -23,17 +22,6 @@ class StrandOptions:
     resources: list[str] | None = None
 
 
-@dataclass(slots=True)
-class WeftOptions:
-    """Configuration options for a Weft decorator."""
-
-    pattern: str | re.Pattern = ""
-    name: str | None = None
-    description: str | None = None
-    strip: bool = True
-    priority: int = 100
-
-
 def strand(
     func: Callable[..., Any] | None = None,
     options: StrandOptions | None = None,
@@ -45,15 +33,10 @@ def strand(
     timeout: float | None = 30.0,
     no_timeout: bool = False,
     resources: list[str] | None = None,
-    **kwargs: Any,
+    isolated: bool = True,
+    **_kwargs: Any,
 ) -> Any:
-    """Decorator marking a Yarn method as an executable Desktop Strand tool.
-
-    Example:
-        @strand(tier=CapabilityTier.INTERACT)
-        def my_tool(self, query: str) -> str:
-            return "done"
-    """
+    """Decorator marking a Yarn method as an executable capability Strand."""
     if options is None:
         options = StrandOptions(
             name=name,
@@ -62,20 +45,15 @@ def strand(
             tier=tier,
             timeout=timeout,
             no_timeout=no_timeout,
-            resources=resources or kwargs.get("resources"),
+            resources=resources,
         )
-
-    if options.tier is None:
-        raise ValueError(
-            "Strand decorator must declare an explicit capability tier "
-            "(e.g. @strand(tier=CapabilityTier.INTERACT) or @strand(tier='observe'))."
-        )
-
-    validated_tier = parse_capability_tier(options.tier, strand_name=options.name or "")
 
     def decorator(fn: Any) -> Any:
         fn_name = getattr(fn, "__name__", "")
         fn_doc = getattr(fn, "__doc__", "")
+
+        resolved_tier_val = options.tier or CapabilityTier.INTERACT
+        validated_tier = parse_capability_tier(resolved_tier_val, strand_name=fn_name)
 
         fn._is_strand = True
         fn._strand_name = options.name or fn_name
@@ -90,39 +68,4 @@ def strand(
     return decorator(func) if func is not None else decorator
 
 
-def weft(
-    func: Callable[..., Any] | None = None,
-    options: WeftOptions | None = None,
-    *,
-    pattern: str | re.Pattern = "",
-    name: str | None = None,
-    description: str | None = None,
-    strip: bool = True,
-    priority: int = 100,
-    **_kwargs: Any,
-) -> Any:
-    """Decorator marking a Yarn method as a streaming token Weft attunement filter."""
-    if options is None:
-        options = WeftOptions(
-            pattern=pattern,
-            name=name,
-            description=description,
-            strip=strip,
-            priority=priority,
-        )
-
-    compiled_pattern = re.compile(options.pattern) if isinstance(options.pattern, str) else options.pattern
-
-    def decorator(fn: Any) -> Any:
-        fn_name = getattr(fn, "__name__", "")
-        fn_doc = getattr(fn, "__doc__", "")
-
-        fn._is_weft = True
-        fn._weft_name = options.name or fn_name
-        fn._weft_pattern = compiled_pattern
-        fn._weft_description = options.description or (fn_doc.strip().splitlines()[0] if fn_doc else "")
-        fn._weft_strip = options.strip
-        fn._weft_priority = options.priority
-        return fn
-
-    return decorator(func) if func is not None else decorator
+__all__ = ["StrandOptions", "strand"]
