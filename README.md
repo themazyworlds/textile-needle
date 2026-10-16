@@ -100,13 +100,7 @@ resources = ["fs:/proc"]
 
 ## Layer Priority
 
-Yarns declare an integer `layer` (0 to 1000, default `50` / `DEFAULT_LAYER`). When multiple yarns provide conflicting strands or capabilities, higher layers deterministically override lower layers:
-
-- `0`: Core POSIX / baseline system fabric
-- `50`: Protocols & middleware (default priority)
-- `100`: Desktop environment & compositor integration (Hyprland, Caelestia)
-- `150`: Session managers & companions (UWSM)
-- `1000`: Explicit user overrides & custom local scripts
+Yarns declare an integer `layer` (0 to 1000, default `50` / `DEFAULT_LAYER`). When multiple yarns provide conflicting strands or capabilities, higher numeric layers deterministically override lower layers (e.g. `100` overrides `50`, and `1000` overrides all system defaults for explicit user overrides).
 
 ---
 
