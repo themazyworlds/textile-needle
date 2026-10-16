@@ -1,71 +1,212 @@
 """
-needle.decorators - Declarative @strand decorator for Yarns.
+needle.decorators - Declarative tier decorators for Yarns.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
-from needle.tiers import CapabilityTier, parse_capability_tier
+from needle.tiers import DEFAULT_TIER_TIMEOUTS, CapabilityTier
 
-
-@dataclass(slots=True)
-class StrandOptions:
-    """Configuration options for a Strand decorator."""
-
-    name: str | None = None
-    description: str | None = None
-    capability: str | None = None
-    tier: CapabilityTier | Literal["observe", "interact", "mutate", "privileged", "system_exec"] | None = None
-    timeout: float | None = 30.0
-    no_timeout: bool = False
-    resources: list[str] | None = None
+_DEFAULT_TIMEOUT: object = object()
 
 
-def strand(
-    func: Callable[..., Any] | None = None,
-    options: StrandOptions | None = None,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    capability: str | None = None,
-    tier: CapabilityTier | Literal["observe", "interact", "mutate", "privileged", "system_exec"] | None = None,
-    timeout: float | None = 30.0,
-    no_timeout: bool = False,
-    resources: list[str] | None = None,
-    isolated: bool = True,
-    **_kwargs: Any,
-) -> Any:
-    """Decorator marking a Yarn method as an executable capability Strand."""
-    if options is None:
-        options = StrandOptions(
+class StrandDecorator:
+    """Namespace providing declarative capability tier decorators.
+
+    Only tier-specific decorators are supported:
+    - @strand.observe(...) or @strand.observe
+    - @strand.interact(...) or @strand.interact
+    - @strand.mutate(...) or @strand.mutate
+    - @strand.privileged(...) or @strand.privileged
+    - @strand.system_exec(...) or @strand.system_exec
+    """
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        raise TypeError(
+            "Direct @strand is not supported. Use explicit tier decorators: "
+            "@strand.observe, @strand.interact, @strand.mutate, @strand.privileged, or @strand.system_exec."
+        )
+
+    def _decorate(
+        self,
+        func: Callable[..., Any] | None,
+        *,
+        name: str | None,
+        description: str | None,
+        capability: str | None,
+        tier: CapabilityTier,
+        timeout: float | None | object,
+        no_timeout: bool,
+        resources: list[str] | None,
+        reason: str | None,
+        fallback: Any,
+    ) -> Any:
+        def decorator(fn: Any) -> Any:
+            fn_name = getattr(fn, "__name__", "")
+            fn_doc = getattr(fn, "__doc__", "")
+
+            if no_timeout:
+                resolved_timeout = None
+            elif timeout is not _DEFAULT_TIMEOUT and timeout is not None:
+                resolved_timeout = timeout  # type: ignore[assignment]
+            else:
+                resolved_timeout = DEFAULT_TIER_TIMEOUTS.get(tier, 15.0)
+
+            fn._is_strand = True
+            fn._strand_name = name or fn_name
+            fn._strand_description = description or (fn_doc.strip().splitlines()[0] if fn_doc else "")
+            fn._strand_capability = capability
+            fn._strand_tier = tier
+            fn._strand_timeout = resolved_timeout
+            fn._strand_no_timeout = no_timeout
+            fn._strand_resources = list(resources or [])
+            fn._strand_reason = reason
+            fn._strand_fallback = fallback
+            return fn
+
+        return decorator(func) if func is not None else decorator
+
+    def observe(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        capability: str | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
+        no_timeout: bool = False,
+        resources: list[str] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
+        """Mark method as an OBSERVE tier strand (read-only telemetry, default timeout 10s)."""
+        return self._decorate(
+            func=func,
             name=name,
             description=description,
             capability=capability,
-            tier=tier,
+            tier=CapabilityTier.OBSERVE,
             timeout=timeout,
             no_timeout=no_timeout,
             resources=resources,
+            reason=reason,
+            fallback=fallback,
         )
 
-    def decorator(fn: Any) -> Any:
-        fn_name = getattr(fn, "__name__", "")
-        fn_doc = getattr(fn, "__doc__", "")
+    def interact(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        capability: str | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
+        no_timeout: bool = False,
+        resources: list[str] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
+        """Mark method as an INTERACT tier strand (UI/IPC actions, default timeout 15s)."""
+        return self._decorate(
+            func=func,
+            name=name,
+            description=description,
+            capability=capability,
+            tier=CapabilityTier.INTERACT,
+            timeout=timeout,
+            no_timeout=no_timeout,
+            resources=resources,
+            reason=reason,
+            fallback=fallback,
+        )
 
-        resolved_tier_val = options.tier or CapabilityTier.INTERACT
-        validated_tier = parse_capability_tier(resolved_tier_val, strand_name=fn_name)
+    def mutate(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        capability: str | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
+        no_timeout: bool = False,
+        resources: list[str] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
+        """Mark method as a MUTATE tier strand (state/file modification, default timeout 60s)."""
+        return self._decorate(
+            func=func,
+            name=name,
+            description=description,
+            capability=capability,
+            tier=CapabilityTier.MUTATE,
+            timeout=timeout,
+            no_timeout=no_timeout,
+            resources=resources,
+            reason=reason,
+            fallback=fallback,
+        )
 
-        fn._is_strand = True
-        fn._strand_name = options.name or fn_name
-        fn._strand_description = options.description or (fn_doc.strip().splitlines()[0] if fn_doc else "")
-        fn._strand_capability = options.capability
-        fn._strand_tier = validated_tier
-        fn._strand_timeout = None if options.no_timeout else options.timeout
-        fn._strand_no_timeout = options.no_timeout
-        fn._strand_resources = list(options.resources or [])
-        return fn
+    def privileged(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        capability: str | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
+        no_timeout: bool = False,
+        resources: list[str] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
+        """Mark method as a PRIVILEGED tier strand (system admin, packages, default timeout 300s)."""
+        return self._decorate(
+            func=func,
+            name=name,
+            description=description,
+            capability=capability,
+            tier=CapabilityTier.PRIVILEGED,
+            timeout=timeout,
+            no_timeout=no_timeout,
+            resources=resources,
+            reason=reason,
+            fallback=fallback,
+        )
 
-    return decorator(func) if func is not None else decorator
+    def system_exec(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        capability: str | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
+        no_timeout: bool = False,
+        resources: list[str] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
+        """Mark method as a SYSTEM_EXEC tier strand (command execution, default timeout 120s)."""
+        return self._decorate(
+            func=func,
+            name=name,
+            description=description,
+            capability=capability,
+            tier=CapabilityTier.SYSTEM_EXEC,
+            timeout=timeout,
+            no_timeout=no_timeout,
+            resources=resources,
+            reason=reason,
+            fallback=fallback,
+        )
 
 
-__all__ = ["StrandOptions", "strand"]
+strand = StrandDecorator()
+
+__all__ = ["StrandDecorator", "strand"]

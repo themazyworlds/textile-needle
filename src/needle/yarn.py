@@ -16,9 +16,10 @@ from functools import cached_property
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
+from needle.layers import DEFAULT_LAYER
 from needle.models import Strand
 from needle.settings import SettingsObject, resolve_yarn_settings
-from needle.tiers import CapabilityTier, parse_capability_tier
+from needle.tiers import DEFAULT_TIER_TIMEOUTS, CapabilityTier, parse_capability_tier
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -28,7 +29,7 @@ class Yarn:
     """Base class for all Textile capability plugins (Yarns)."""
 
     name: str = ""
-    layer: int = 150
+    layer: int = DEFAULT_LAYER
     description: str = ""
     tailor: str = "textile"
     version: str = "1.0.0"
@@ -214,9 +215,11 @@ class Yarn:
         required: list[str] | None = None,
         capability: str | None = None,
         resources: list[str] | None = None,
-        timeout: float | None = 30.0,
+        timeout: float | None = None,
         no_timeout: bool = False,
         args_schema: type[BaseModel] | None = None,
+        reason: str | None = None,
+        fallback: Any = None,
     ) -> Strand:
         """Helper to construct and return a Strand object explicitly."""
         validated_tier = parse_capability_tier(tier, strand_name=name)
@@ -226,6 +229,8 @@ class Yarn:
             json_schema = args_schema.model_json_schema()
             params = dict(json_schema.get("properties", {}))
             req = list(json_schema.get("required", []))
+
+        resolved_timeout = None if no_timeout else (timeout if timeout is not None else DEFAULT_TIER_TIMEOUTS.get(validated_tier, 15.0))
 
         return Strand(
             name=name,
@@ -238,8 +243,10 @@ class Yarn:
             capability=capability,
             args_schema=args_schema,
             resources=resources or list(self.resources),
-            timeout=None if no_timeout else timeout,
+            timeout=resolved_timeout,
             no_timeout=no_timeout,
+            reason=reason,
+            fallback=fallback,
         )
 
     def get_strands(self) -> list[Strand]:
@@ -258,9 +265,11 @@ class Yarn:
             s_desc = getattr(method, "_strand_description", method.__doc__ or s_name)
             s_tier = getattr(method, "_strand_tier", CapabilityTier.INTERACT)
             s_cap = getattr(method, "_strand_capability", None)
-            s_timeout = getattr(method, "_strand_timeout", 30.0)
             s_no_timeout = getattr(method, "_strand_no_timeout", False)
+            s_timeout = getattr(method, "_strand_timeout", None if s_no_timeout else DEFAULT_TIER_TIMEOUTS.get(s_tier, 15.0))
             s_res = getattr(method, "_strand_resources", list(self.resources))
+            s_reason = getattr(method, "_strand_reason", None)
+            s_fallback = getattr(method, "_strand_fallback", None)
 
             sig = inspect.signature(method)
             params: dict[str, Any] = {}
@@ -301,6 +310,8 @@ class Yarn:
                     resources=s_res,
                     timeout=s_timeout,
                     no_timeout=s_no_timeout,
+                    reason=s_reason,
+                    fallback=s_fallback,
                 )
             )
         return discovered

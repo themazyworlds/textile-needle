@@ -35,6 +35,8 @@ def export_yarn_manifest(yarn: Any) -> dict[str, Any]:
                 "timeout": s_timeout,
                 "no_timeout": s_no_timeout,
                 "capability": s.capability,
+                "reason": getattr(s, "reason", None),
+                "fallback": getattr(s, "fallback", None),
             }
         )
 

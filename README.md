@@ -45,14 +45,14 @@ class SystemControlYarn(Yarn):
     def is_available(self) -> bool:
         return True
 
-    @strand(tier=CapabilityTier.OBSERVE)
+    @strand.observe
     def get_uptime(self) -> str:
         """Return system uptime information."""
         with open("/proc/uptime", "r", encoding="utf-8") as f:
             seconds = float(f.read().split()[0])
         return f"{seconds:.1f} seconds"
 
-    @strand(tier=CapabilityTier.MUTATE)
+    @strand.mutate
     def trigger_alert(self, message: str) -> str:
         """Broadcast a system alert event."""
         self.publish_event(

@@ -27,6 +27,8 @@ class Strand(BaseModel):
     resources: list[str] = Field(default_factory=list)
     timeout: float | None = 30.0
     no_timeout: bool = False
+    reason: str | None = None
+    fallback: Any = None
 
     def to_mcp_definition(self) -> dict[str, Any]:
         """Convert strand schema into Model Context Protocol format."""
