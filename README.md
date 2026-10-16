@@ -39,9 +39,6 @@ from needle import Yarn, strand
 
 
 class SystemControlYarn(Yarn):
-    name = "system_control"
-    layer = 50
-
     def is_available(self) -> bool:
         return True
 
