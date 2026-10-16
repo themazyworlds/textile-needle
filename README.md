@@ -9,13 +9,13 @@ Needle provides the base classes, decorators, event models, and execution primit
 ## Installation
 
 ```bash
-uv add textile-needle
+uv add needle
 ```
 
 or via pip:
 
 ```bash
-pip install textile-needle
+pip install needle
 ```
 
 ---
@@ -23,7 +23,7 @@ pip install textile-needle
 ## Core Primitives
 
 - **`Yarn`**: Base class for capability packages. Manages layer declaration, configuration schemas, lifecycle hooks (`is_available`, `on_load`, `on_unload`), ambient event emission (`publish_event`), state storage (`set_slot`, `get_slot`), and blackboard notices (`stitch`).
-- **`@strand`**: Decorator exposing functions as executable tool capabilities with parameter schemas, capability tiers (`OBSERVE`, `INTERACT`, `MUTATE`, `PRIVILEGED`), timeouts, and resource tags.
+- **`@strand`**: Declarative tier decorators (`@strand.observe`, `@strand.interact`, `@strand.mutate`, `@strand.privileged`, `@strand.system_exec`) exposing functions as executable tool capabilities with parameter schemas, tier-aware timeouts, reasons, and fallbacks.
 - **Events (`EventFrame`, `EventUrgency`)**: Standardized event envelopes with urgency tiers (`AMBIENT`, `NOTICE`, `ALERT`, `FLASH`) for cross-process synchronization.
 - **Guardrails (`ScopedPath`, `SessionProcessGuard`, `AccessBoundaryError`)**: Confinement primitives for mathematical filesystem root anchors and POSIX session boundary validation.
 - **Worker (`needle.worker`)**: Standard subprocess execution target executed in isolated virtual environments.
@@ -35,7 +35,7 @@ pip install textile-needle
 ### 1. Define a Capability Yarn
 
 ```python
-from needle import CapabilityTier, EventUrgency, Yarn, strand
+from needle import EventUrgency, Yarn, strand
 
 
 class SystemControlYarn(Yarn):
@@ -52,7 +52,7 @@ class SystemControlYarn(Yarn):
             seconds = float(f.read().split()[0])
         return f"{seconds:.1f} seconds"
 
-    @strand.mutate
+    @strand.mutate(reason="Broadcasting system alert notice")
     def trigger_alert(self, message: str) -> str:
         """Broadcast a system alert event."""
         self.publish_event(
@@ -73,9 +73,9 @@ Every capability yarn is distributed as a self-contained directory containing st
 name = "textile-yarn-system-control"
 version = "0.1.0"
 description = "System control capabilities for Textile"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = [
-    "textile-needle>=0.1.0",
+    "needle>=0.1.0",
 ]
 
 [tool.textile]
@@ -88,26 +88,25 @@ resources = ["fs:/proc"]
 
 ## Capability Tiers
 
-| Tier | Policy Gate | Sandboxing Profile | Typical Operations |
-| :--- | :--- | :--- | :--- |
-| `OBSERVE` | Open | Read-only bind mounts | Telemetry, process queries, status checks |
-| `INTERACT` | Open | Workspace and network mounts | Desktop notifications, window focus, clipboard |
-| `MUTATE` | 2FA Required | Isolated write mounts | Configuration updates, file modifications |
-| `PRIVILEGED` | 2FA Required | Host execution boundary | Session exit, power state changes, system reboots |
+| Tier | Policy Gate | Default Timeout | Sandboxing Profile | Typical Operations |
+| :--- | :--- | :--- | :--- | :--- |
+| `OBSERVE` | Open | 10s | Read-only container mount | Telemetry, process queries, status checks |
+| `INTERACT` | Open | 15s | Workspace and network mounts | Desktop notifications, window focus, clipboard |
+| `MUTATE` | 2FA Required | 60s | Isolated write mounts | Configuration updates, file modifications |
+| `PRIVILEGED` | 2FA Required | 300s | Host execution boundary | System reconfiguration, package updates |
+| `SYSTEM_EXEC` | 2FA Required | 120s | Ephemeral sandbox | Command execution, terminal tools |
 
 ---
 
-## Layer Priority Reference
+## Layer Priority
 
-Higher layers override strands declared in lower layers:
+Yarns declare an integer `layer` (0 to 1000, default `50` / `DEFAULT_LAYER`). When multiple yarns provide conflicting strands or capabilities, higher layers deterministically override lower layers:
 
-| Layer Constant | Value | Scope |
-| :--- | :--- | :--- |
-| `LAYER_CORE_POSIX_THRESHOLD` | 0 | Core POSIX system utilities |
-| `LAYER_DESKTOP_PROTOCOL_THRESHOLD` | 50 | Protocols (D-Bus, MPRIS, Wayland) |
-| `LAYER_COMPOSITOR_DE_THRESHOLD` | 100 | Compositor / Desktop environment (Hyprland, GNOME) |
-| `LAYER_SESSION_MANAGER_THRESHOLD` | 150 | Session managers (UWSM, systemd scopes) |
-| `LAYER_USER_OVERRIDE_THRESHOLD` | 1000 | User local scripts and explicit overrides |
+- `0`: Core POSIX / baseline system fabric
+- `50`: Protocols & middleware (default priority)
+- `100`: Desktop environment & compositor integration (Hyprland, Caelestia)
+- `150`: Session managers & companions (UWSM)
+- `1000`: Explicit user overrides & custom local scripts
 
 ---
 
