@@ -35,7 +35,7 @@ pip install needle
 ### 1. Define a Capability Yarn
 
 ```python
-from needle import EventUrgency, Yarn, strand
+from needle import Yarn, strand
 
 
 class SystemControlYarn(Yarn):
@@ -58,7 +58,7 @@ class SystemControlYarn(Yarn):
         self.publish_event(
             topic="system.alert",
             summary=message,
-            urgency=EventUrgency.ALERT,
+            urgency="alert",
             data={"message": message},
         )
         return "Alert dispatched"
