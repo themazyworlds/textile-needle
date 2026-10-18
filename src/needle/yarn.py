@@ -9,6 +9,7 @@ import inspect
 import sys
 from collections.abc import Callable, Sequence
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 lazy import asyncio
 lazy import concurrent.futures
@@ -27,13 +28,13 @@ lazy from needle.settings import SettingsObject, resolve_yarn_settings
 class Yarn:
     """Base class for all Textile capability plugins (Yarns)."""
 
-    name: str = ""
-    layer: int = DEFAULT_LAYER
-    description: str = ""
-    tailor: str = "textile"
-    version: str = "1.0.0"
-    resources: Sequence[str] = ()
-    dependencies: Sequence[str] = ()
+    name: str
+    layer: int
+    description: str
+    tailor: str
+    version: str
+    resources: Sequence[str]
+    dependencies: Sequence[str]
     settings_schema: type[BaseModel] | None = None
     _elastic: Any = None
     _tapestry: Any = None
@@ -52,25 +53,24 @@ class Yarn:
         proj = cfg.get("project", {})
         tool = cfg.get("tool", {}).get("textile", {})
 
-        # Declarative attribute resolution: Constructor Arg -> pyproject.toml -> Class Default
         proj_name = str(proj["name"]).removeprefix("textile-yarn-").removeprefix("yarn-") if "name" in proj else ""
-        self.name = name or self.name or proj_name or self.__class__.__name__.lower().removesuffix("yarn")
+        self.name = name or proj_name or self.__class__.__name__.lower().removesuffix("yarn")
 
         doc = inspect.getdoc(self.__class__)
         class_desc = doc.splitlines()[0].strip() if doc else self.name
         proj_desc = str(proj["description"]).splitlines()[0].strip() if "description" in proj else ""
-        self.description = description or self.description or proj_desc or class_desc
+        self.description = description or proj_desc or class_desc
 
-        self.version = version or str(proj.get("version", self.version))
-        self.layer = layer if layer is not None else int(tool.get("layer", self.layer))
+        self.version = version or str(proj.get("version", "1.0.0"))
+        self.layer = layer if layer is not None else int(tool.get("layer", DEFAULT_LAYER))
 
         first_author = proj.get("authors", [{}])[0] if proj.get("authors") else {}
         author_name = first_author.get("name", "textile") if isinstance(first_author, dict) else str(first_author)
-        self.tailor = tailor or str(tool.get("tailor", author_name if author_name else self.tailor))
+        self.tailor = tailor or str(tool.get("tailor", author_name if author_name else "textile"))
 
-        self.resources = list(resources if resources is not None else tool.get("resources", self.resources))
+        self.resources = list(resources if resources is not None else tool.get("resources", ()))
         self.dependencies = list(
-            dependencies if dependencies is not None else proj.get("dependencies", self.dependencies)
+            dependencies if dependencies is not None else proj.get("dependencies", ())
         )
 
         settings_table = tool.get("settings", {}) if isinstance(tool.get("settings"), dict) else {}
@@ -84,12 +84,20 @@ class Yarn:
 
     @classmethod
     def _read_pyproject(cls) -> dict[str, Any]:
-        """Official PyPA resource loading via importlib.resources."""
+        """Load pyproject.toml via importlib.resources or module source file directory."""
         with contextlib.suppress(TypeError, ValueError, AttributeError, ModuleNotFoundError, OSError):
             target = resources.files(cls.__module__).joinpath("pyproject.toml")
             if target.is_file():
                 with target.open("rb") as f:
                     return tomllib.load(f)
+
+        with contextlib.suppress(Exception):
+            mod = sys.modules.get(cls.__module__)
+            if mod and hasattr(mod, "__file__") and mod.__file__:
+                p = Path(mod.__file__).resolve().parent / "pyproject.toml"
+                if p.is_file():
+                    with p.open("rb") as f:
+                        return tomllib.load(f)
         return {}
 
     def get_settings_schema(self) -> type[BaseModel] | None:
