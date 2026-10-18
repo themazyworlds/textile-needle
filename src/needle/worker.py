@@ -5,12 +5,12 @@ Executed inside isolated container / virtualenv environments to invoke Yarn stra
 
 from __future__ import annotations
 
-import asyncio
 import importlib.util
 import inspect
 import sys
 from pathlib import Path
 from typing import Any
+lazy import asyncio
 
 import orjson
 
@@ -79,7 +79,7 @@ def main() -> None:
             except TypeError:
                 res = target_fn(args)
 
-        if asyncio.iscoroutine(res) or inspect.isawaitable(res):
+        if inspect.isawaitable(res):
             res = asyncio.run(res)
 
         sys.stdout.write(orjson.dumps({"success": True, "result": res}).decode() + "\n")

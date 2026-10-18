@@ -4,15 +4,15 @@ needle.manifest - Yarn schema inspection and standalone manifest exporter.
 
 from __future__ import annotations
 
-import importlib.util
-import inspect
 import sys
 from pathlib import Path
 from typing import Any
+lazy import importlib.util
+lazy import inspect
 
 import orjson
 
-from needle.yarn import Yarn
+lazy from needle.yarn import Yarn
 
 PROBE_PREFIX = "__TEXTILE_PROBE_JSON__:"
 LOAD_EXCEPTIONS = (ImportError, SyntaxError, AttributeError, TypeError, ValueError, OSError, RuntimeError)

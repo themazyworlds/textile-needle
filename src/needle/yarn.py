@@ -4,23 +4,23 @@ needle.yarn - Base class and lifecycle contract for Textile Yarns.
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import contextlib
 import inspect
 import sys
-import tomllib
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from importlib import resources
 from typing import TYPE_CHECKING, Any
+lazy import asyncio
+lazy import concurrent.futures
+lazy import tomllib
+lazy from importlib import resources
 
 import orjson
 
 from needle.layers import DEFAULT_LAYER
-from needle.models import Strand
-from needle.settings import SettingsObject, resolve_yarn_settings
 from needle.tiers import DEFAULT_TIER_TIMEOUTS, CapabilityTier, parse_capability_tier
+lazy from needle.models import Strand
+lazy from needle.settings import SettingsObject, resolve_yarn_settings
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
