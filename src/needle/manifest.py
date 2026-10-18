@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-import json
 import sys
 from pathlib import Path
 from typing import Any
+
+import orjson
 
 from needle.yarn import Yarn
 
@@ -96,7 +97,7 @@ def main() -> None:
     target_file = Path(sys.argv[1]).resolve()
     manifests = probe_file(target_file)
     for m in manifests:
-        sys.stdout.write(f"{PROBE_PREFIX}{json.dumps(m)}\n")
+        sys.stdout.write(f"{PROBE_PREFIX}{orjson.dumps(m).decode()}\n")
 
 
 if __name__ == "__main__":

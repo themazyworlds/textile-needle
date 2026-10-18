@@ -8,13 +8,14 @@ import asyncio
 import concurrent.futures
 import contextlib
 import inspect
-import json
 import sys
 import tomllib
 from collections.abc import Callable, Sequence
 from functools import cached_property
 from importlib import resources
 from typing import TYPE_CHECKING, Any
+
+import orjson
 
 from needle.layers import DEFAULT_LAYER
 from needle.models import Strand
@@ -354,7 +355,7 @@ class Yarn:
         if isinstance(res, str):
             return res
         if isinstance(res, (dict, list)):
-            return json.dumps(res)
+            return orjson.dumps(res).decode()
         return str(res)
 
     def export_manifest(self) -> dict[str, Any]:

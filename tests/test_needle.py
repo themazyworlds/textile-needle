@@ -1,6 +1,8 @@
-"""
-Tests for needle SDK - verifies Yarn base class, decorators, schema generation, and MCP serialization.
-"""
+from pathlib import Path
+from typing import Any
+
+import orjson
+import pytest
 
 from needle import DEFAULT_LAYER, CapabilityTier, Yarn, parse_capability_tier, strand
 
@@ -136,3 +138,48 @@ def test_yarn_settings_and_execution() -> None:
 
     exec_res = yarn.execute_sync("launch", {"app_name": "term", "wait": True})
     assert exec_res == "launched term (wait=True)"
+
+
+class DictReturnYarn(Yarn):
+    """Yarn returning structured dictionary and list results."""
+
+    @strand.observe
+    def get_data(self) -> dict[str, Any]:
+        return {"status": "ok", "count": 10}
+
+
+def test_yarn_dict_result_serialization() -> None:
+    yarn = DictReturnYarn()
+    res = yarn.execute_sync("get_data", {})
+    assert orjson.loads(res) == {"status": "ok", "count": 10}
+
+
+def test_manifest_probe_and_main(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from needle.manifest import PROBE_PREFIX, main, probe_file
+
+    yarn_file = tmp_path / "probed_yarn.py"
+    yarn_file.write_text(
+        "from needle import Yarn, strand\n"
+        "class ProbedTestYarn(Yarn):\n"
+        "    @strand.observe\n"
+        "    def hello(self) -> str:\n"
+        "        return 'world'\n",
+        encoding="utf-8",
+    )
+
+    manifests = probe_file(yarn_file)
+    assert len(manifests) == 1
+    assert manifests[0]["name"] == "probedtest"
+    assert manifests[0]["class_name"] == "ProbedTestYarn"
+
+    monkeypatch.setattr("sys.argv", ["needle.manifest", str(yarn_file)])
+    main()
+    captured = capsys.readouterr().out
+    assert PROBE_PREFIX in captured
+    json_part = captured.split(PROBE_PREFIX, 1)[1].strip()
+    parsed = orjson.loads(json_part)
+    assert parsed["name"] == "probedtest"
