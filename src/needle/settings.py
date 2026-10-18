@@ -5,12 +5,11 @@ needle.settings - Standalone settings object, schema resolution, and configurati
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any
+from typing import Any
 lazy import tomllib
 lazy from importlib import resources
 
-if TYPE_CHECKING:
-    from pydantic import BaseModel
+lazy from pydantic import BaseModel
 
 
 class SettingsObject(dict[str, Any]):

@@ -9,21 +9,19 @@ import inspect
 import sys
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import Any
 lazy import asyncio
 lazy import concurrent.futures
 lazy import tomllib
 lazy from importlib import resources
 
 import orjson
+lazy from pydantic import BaseModel
 
 from needle.layers import DEFAULT_LAYER
 from needle.tiers import DEFAULT_TIER_TIMEOUTS, CapabilityTier, parse_capability_tier
 lazy from needle.models import Strand
 lazy from needle.settings import SettingsObject, resolve_yarn_settings
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
 
 
 class Yarn:
