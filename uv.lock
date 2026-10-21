@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.15"
 
 [[package]]
@@ -35,11 +35,11 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "orjson" },
-    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "pydantic" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -47,13 +47,11 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "orjson", specifier = ">=3.10.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-]
+requires-dist = [{ name = "orjson", specifier = ">=3.10.0" }]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },

@@ -48,4 +48,3 @@ __all__ = [
     "resolve_yarn_settings",
     "strand",
 ]
-

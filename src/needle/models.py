@@ -1,30 +1,30 @@
 """
-needle.models - Pydantic definitions for Strands and schema specifications.
+needle.models - Lightweight data models for Strands and schema specifications.
 """
 
-from collections.abc import Callable
-from typing import Any
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from needle.tiers import CapabilityTier
 
 
-class Strand(BaseModel):
+@dataclass(slots=True)
+class Strand:
     """Represents a single callable tool/strand exposed by a Yarn."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str
     description: str = ""
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    required: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = field(default_factory=dict)
+    required: list[str] = field(default_factory=list)
     handler: Callable[..., Any] | None = None
     raw_handler: Callable[..., Any] | None = None
     capability: str | None = None
-    args_schema: type[BaseModel] | None = None
+    args_schema: Any = None
     tier: CapabilityTier = CapabilityTier.INTERACT
-    resources: list[str] = Field(default_factory=list)
+    resources: list[str] = field(default_factory=list)
     timeout: float | None = 30.0
     no_timeout: bool = False
     reason: str | None = None
@@ -36,7 +36,7 @@ class Strand(BaseModel):
         desc = f"[Capability Tier: {tier_str}] {self.description}".strip()
         schema = (
             self.args_schema.model_json_schema()
-            if self.args_schema
+            if hasattr(self.args_schema, "model_json_schema")
             else {
                 "type": "object",
                 "properties": self.parameters,

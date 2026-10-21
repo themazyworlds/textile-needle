@@ -44,12 +44,12 @@ def export_yarn_manifest(yarn: Any) -> dict[str, Any]:
     doc_desc = (yarn.__class__.__doc__ or "").strip().splitlines()[0] if yarn.__class__.__doc__ else yarn.name
     return {
         "class_name": yarn.__class__.__name__,
-        "name": yarn.name,
-        "description": yarn.description or doc_desc,
-        "layer": yarn.layer,
-        "tailor": yarn.tailor,
-        "version": yarn.version,
-        "resources": list(yarn.resources),
+        "name": getattr(yarn, "name", yarn.__class__.__name__.lower().removesuffix("yarn")),
+        "description": getattr(yarn, "description", doc_desc),
+        "layer": getattr(yarn, "layer", 50),
+        "tailor": getattr(yarn, "tailor", "textile"),
+        "version": getattr(yarn, "version", "1.0.0"),
+        "resources": list(getattr(yarn, "resources", ())),
         "strands": strands_data,
     }
 

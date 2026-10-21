@@ -6,7 +6,6 @@ Executed inside isolated container / virtualenv environments to invoke Yarn stra
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import sys
 from pathlib import Path
 from typing import Any
@@ -67,19 +66,18 @@ def main() -> None:
         if target_fn is None:
             raise AttributeError(f"Strand '{strand_name}' not found on '{class_name}'")
 
-        sig = inspect.signature(target_fn)
-        params = list(sig.parameters.values())
-        if len(params) == 1 and params[0].name in {"args", "arguments", "params", "payload", "data"}:
-            res = target_fn(args)
-        else:
-            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
-            call_args = args if has_kwargs else {k: v for k, v in args.items() if k in sig.parameters}
+        if not args:
             try:
-                res = target_fn(**call_args)
+                res = target_fn()
+            except TypeError:
+                res = target_fn(args)
+        else:
+            try:
+                res = target_fn(**args)
             except TypeError:
                 res = target_fn(args)
 
-        if inspect.isawaitable(res):
+        if hasattr(res, "__await__"):
             res = asyncio.run(res)
 
         sys.stdout.write(orjson.dumps({"success": True, "result": res}).decode() + "\n")

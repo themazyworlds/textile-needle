@@ -4,20 +4,14 @@ needle.yarn - Base class and lifecycle contract for Textile Yarns.
 
 from __future__ import annotations
 
-import contextlib
-import inspect
-import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from functools import cached_property
-from pathlib import Path
 from typing import Any
 lazy import asyncio
 lazy import concurrent.futures
-lazy import tomllib
-lazy from importlib import resources
+lazy import inspect
 
 import orjson
-lazy from pydantic import BaseModel
 
 from needle.layers import DEFAULT_LAYER
 from needle.tiers import DEFAULT_TIER_TIMEOUTS, CapabilityTier, parse_capability_tier
@@ -28,14 +22,7 @@ lazy from needle.settings import SettingsObject, resolve_yarn_settings
 class Yarn:
     """Base class for all Textile capability plugins (Yarns)."""
 
-    name: str
-    layer: int
-    description: str
-    tailor: str
-    version: str
-    resources: Sequence[str]
-    dependencies: Sequence[str]
-    settings_schema: type[BaseModel] | None = None
+    settings_schema: Any = None
     _elastic: Any = None
     _tapestry: Any = None
 
@@ -43,65 +30,77 @@ class Yarn:
         self,
         name: str | None = None,
         layer: int | None = None,
-        description: str | None = None,
-        tailor: str | None = None,
-        version: str | None = None,
-        resources: Sequence[str] | None = None,
-        dependencies: Sequence[str] | None = None,
+        **kwargs: Any,
     ) -> None:
-        cfg = self._read_pyproject()
-        proj = cfg.get("project", {})
-        tool = cfg.get("tool", {}).get("textile", {})
-
-        proj_name = str(proj["name"]).removeprefix("textile-yarn-").removeprefix("yarn-") if "name" in proj else ""
-        self.name = name or proj_name or self.__class__.__name__.lower().removesuffix("yarn")
-
-        doc = inspect.getdoc(self.__class__)
-        class_desc = doc.splitlines()[0].strip() if doc else self.name
-        proj_desc = str(proj["description"]).splitlines()[0].strip() if "description" in proj else ""
-        self.description = description or proj_desc or class_desc
-
-        self.version = version or str(proj.get("version", "1.0.0"))
-        self.layer = layer if layer is not None else int(tool.get("layer", DEFAULT_LAYER))
-
-        first_author = proj.get("authors", [{}])[0] if proj.get("authors") else {}
-        author_name = first_author.get("name", "textile") if isinstance(first_author, dict) else str(first_author)
-        self.tailor = tailor or str(tool.get("tailor", author_name if author_name else "textile"))
-
-        self.resources = list(resources if resources is not None else tool.get("resources", ()))
-        self.dependencies = list(
-            dependencies if dependencies is not None else proj.get("dependencies", ())
-        )
-
-        settings_table = tool.get("settings", {}) if isinstance(tool.get("settings"), dict) else {}
-        self._settings_info = dict(settings_table)
-        self._default_settings = {
-            k: v.get("default", v) if isinstance(v, dict) else v for k, v in settings_table.items()
-        }
+        if name:
+            self.name = name
+        if layer is not None:
+            self.layer = layer
+        if "description" in kwargs:
+            self.description = kwargs["description"]
+        if "version" in kwargs:
+            self.version = kwargs["version"]
+        if "tailor" in kwargs:
+            self.tailor = kwargs["tailor"]
+        if "resources" in kwargs:
+            self.resources = kwargs["resources"]
         self._user_settings: dict[str, Any] = {}
         self._settings: Any = None
         self._slots: dict[str, Any] = {}
 
-    @classmethod
-    def _read_pyproject(cls) -> dict[str, Any]:
-        """Load pyproject.toml via importlib.resources or module source file directory."""
-        with contextlib.suppress(TypeError, ValueError, AttributeError, ModuleNotFoundError, OSError):
-            target = resources.files(cls.__module__).joinpath("pyproject.toml")
-            if target.is_file():
-                with target.open("rb") as f:
-                    return tomllib.load(f)
+    @property
+    def resources(self) -> list[str]:
+        return getattr(self, "_resources", [])
 
-        with contextlib.suppress(Exception):
-            mod = sys.modules.get(cls.__module__)
-            if mod and hasattr(mod, "__file__") and mod.__file__:
-                p = Path(mod.__file__).resolve().parent / "pyproject.toml"
-                if p.is_file():
-                    with p.open("rb") as f:
-                        return tomllib.load(f)
-        return {}
+    @resources.setter
+    def resources(self, val: Any) -> None:
+        self._resources = list(val) if val else []
 
-    def get_settings_schema(self) -> type[BaseModel] | None:
-        """Return explicit Pydantic settings schema for this yarn."""
+    @property
+    def name(self) -> str:
+        return getattr(self, "_name", None) or self.__class__.__name__.lower().removesuffix("yarn")
+
+    @name.setter
+    def name(self, val: str) -> None:
+        self._name = val
+
+    @property
+    def layer(self) -> int:
+        return getattr(self, "_layer", DEFAULT_LAYER)
+
+    @layer.setter
+    def layer(self, val: int) -> None:
+        self._layer = val
+
+    @property
+    def description(self) -> str:
+        if hasattr(self, "_description"):
+            return self._description
+        doc = (self.__doc__ or "").strip()
+        return doc.splitlines()[0].strip() if doc else ""
+
+    @description.setter
+    def description(self, val: str) -> None:
+        self._description = val
+
+    @property
+    def version(self) -> str:
+        return getattr(self, "_version", "1.0.0")
+
+    @version.setter
+    def version(self, val: str) -> None:
+        self._version = val
+
+    @property
+    def tailor(self) -> str:
+        return getattr(self, "_tailor", "textile")
+
+    @tailor.setter
+    def tailor(self, val: str) -> None:
+        self._tailor = val
+
+    def get_settings_schema(self) -> Any:
+        """Return explicit settings schema for this yarn."""
         return self.settings_schema
 
     def set_user_settings(self, settings: dict[str, Any]) -> None:
@@ -117,7 +116,7 @@ class Yarn:
 
         self._settings = resolve_yarn_settings(
             user_config=getattr(self, "_user_settings", {}),
-            default_config=self._default_settings,
+            default_config=getattr(self, "_default_settings", {}),
             schema=self.get_settings_schema(),
             package_anchor=self.__class__.__module__,
         )
@@ -131,22 +130,12 @@ class Yarn:
     @property
     def elastic(self) -> Any:
         """Universal cross-process event and sensory bus."""
-        inst = getattr(self, "_elastic", None)
-        if inst is not None:
-            return inst
-        if "textile.core.telemetry.elastic" in sys.modules:
-            return getattr(sys.modules["textile.core.telemetry.elastic"], "elastic", None)
-        return None
+        return getattr(self, "_elastic", None)
 
     @property
     def tapestry(self) -> Any:
         """Universal live state & sensory blackboard."""
-        inst = getattr(self, "_tapestry", None)
-        if inst is not None:
-            return inst
-        if "textile.core.telemetry.blackboard" in sys.modules:
-            return getattr(sys.modules["textile.core.telemetry.blackboard"], "sensory_tapestry", None)
-        return None
+        return getattr(self, "_tapestry", None)
 
     def publish_event(
         self,
@@ -224,7 +213,7 @@ class Yarn:
         resources: list[str] | None = None,
         timeout: float | None = None,
         no_timeout: bool = False,
-        args_schema: type[BaseModel] | None = None,
+        args_schema: Any = None,
         reason: str | None = None,
         fallback: Any = None,
     ) -> Strand:
@@ -237,7 +226,11 @@ class Yarn:
             params = dict(json_schema.get("properties", {}))
             req = list(json_schema.get("required", []))
 
-        resolved_timeout = None if no_timeout else (timeout if timeout is not None else DEFAULT_TIER_TIMEOUTS.get(validated_tier, 15.0))
+        resolved_timeout = (
+            None
+            if no_timeout
+            else (timeout if timeout is not None else DEFAULT_TIER_TIMEOUTS.get(validated_tier, 15.0))
+        )
 
         return Strand(
             name=name,
@@ -249,7 +242,7 @@ class Yarn:
             required=req,
             capability=capability,
             args_schema=args_schema,
-            resources=resources or list(self.resources),
+            resources=resources or list(getattr(self, "resources", ())),
             timeout=resolved_timeout,
             no_timeout=no_timeout,
             reason=reason,
@@ -273,8 +266,10 @@ class Yarn:
             s_tier = getattr(method, "_strand_tier", CapabilityTier.INTERACT)
             s_cap = getattr(method, "_strand_capability", None)
             s_no_timeout = getattr(method, "_strand_no_timeout", False)
-            s_timeout = getattr(method, "_strand_timeout", None if s_no_timeout else DEFAULT_TIER_TIMEOUTS.get(s_tier, 15.0))
-            s_res = getattr(method, "_strand_resources", list(self.resources))
+            s_timeout = getattr(
+                method, "_strand_timeout", None if s_no_timeout else DEFAULT_TIER_TIMEOUTS.get(s_tier, 15.0)
+            )
+            s_res = getattr(method, "_strand_resources", list(getattr(self, "resources", ())))
             s_reason = getattr(method, "_strand_reason", None)
             s_fallback = getattr(method, "_strand_fallback", None)
 

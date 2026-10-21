@@ -61,22 +61,31 @@ class EventOptions:
             self.urgency = EventUrgency.from_value(self.urgency)
 
 
-from pydantic import BaseModel, Field
+from dataclasses import dataclass, field
 
 
-class EventFrame(BaseModel):
+@dataclass(slots=True)
+class EventFrame:
     """Standardized, self-describing immutable event packet."""
 
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:12])
     topic: str
+    id: str = ""
     source: str = "system"
     urgency: EventUrgency = EventUrgency.NOTICE
     summary: str = ""
-    data: dict[str, Any] = Field(default_factory=dict)
-    timestamp: float = Field(default_factory=time.time)
-    process_id: int = Field(default_factory=os.getpid)
+    data: dict[str, Any] = field(default_factory=dict)
+    timestamp: float = 0.0
+    process_id: int = 0
     retained_slot: str | None = None
     retained_value: Any = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            self.id = str(uuid.uuid4())[:12]
+        if not self.timestamp:
+            self.timestamp = time.time()
+        if not self.process_id:
+            self.process_id = os.getpid()
 
 
 __all__ = ["EventFrame", "EventOptions", "EventUrgency"]
